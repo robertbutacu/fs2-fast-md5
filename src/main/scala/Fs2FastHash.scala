@@ -1,3 +1,5 @@
+import java.time.Instant
+
 import cats.effect.{Concurrent, IO}
 import com.twmacinta.util.MD5
 import blobstore.{Path, Store}
@@ -12,10 +14,13 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
       .get(file, 4 * 1024 * 1024)
       .chunks
       .broadcastTo(
-        md5Update,
-        progressBar(
-          Ref.of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L)).unsafeRunSync()
-        )
+        md5Update.andThen(
+          progressBar(
+            Ref
+              .of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L))
+              .unsafeRunSync()
+          )
+        ),
       )
       .compile
       .drain
@@ -34,8 +39,9 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
   type Accumulated = Long
   type ProgressLogger = (Total, TotalHashed, Accumulated)
 
-  def md5Update: fs2.Pipe[IO, Chunk[Byte], Unit] = chunk => {
-    chunk.flatMap { bytes =>
+  import cats.implicits._
+  def md5Update: fs2.Pipe[IO, Chunk[Byte], Chunk[Byte]] = chunk => {
+    chunk.flatTap { bytes =>
       fs2.Stream.eval(IO(md5.Update(bytes.toArray)))
     }
   }
@@ -46,26 +52,37 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
       {
         for {
           bytes <- chunk
-          progress <- fs2.Stream.eval(progressCounter.get)
-          (total, totalHashed, accumulated) = progress
-          when_to_log = total.get / 20.0
-          newAccumulated = accumulated + bytes.size
-          newTotalHashed = if (newAccumulated > when_to_log) totalHashed + newAccumulated else totalHashed
-          adjustedAccumulated = newAccumulated % when_to_log
+          _ <- updateProgressBar(progressCounter)(bytes.size)
+          updatedProgressBar <- fs2.Stream.eval(progressCounter.get)
+          (total, newTotalHashed, unadjustedHashed) = updatedProgressBar
+          adjustedAccumulated = unadjustedHashed % WHEN_TO_LOG(total.get)
           progressPercentage = newTotalHashed.toDouble / total.get.toDouble * 100.0
           _ <- fs2.Stream.eval(
-            if (newAccumulated > when_to_log)
+            if (unadjustedHashed > WHEN_TO_LOG(total.get))
               IO(
                 println(
-                  s"Made progress to $progressPercentage: hashed $newTotalHashed out of $total"
+                  s"[${Instant.now}]Made progress to ${progressPercentage.toInt}: hashed ${newTotalHashed * Math
+                    .pow(10, -6)} MB out of ${total.get * Math.pow(10, -6)} MB"
                 )
               )
             else IO.pure(())
           )
-          _ <- fs2.Stream.eval(
-            progressCounter.set(total, newTotalHashed, adjustedAccumulated.toLong)
-          )
+        _ <- fs2.Stream.eval(progressCounter.set((total, newTotalHashed, adjustedAccumulated)))
         } yield ()
       }
   }
+
+  private def updateProgressBar(
+    ref: Ref[IO, ProgressLogger]
+  )(bytes: Long): fs2.Stream[IO, Unit] = {
+    for {
+      progress <- fs2.Stream.eval(ref.get)
+      (total, totalHashed, accumulated) = progress
+      newAccumulated = accumulated + bytes
+      newTotalHashed = totalHashed + bytes
+      _ <- fs2.Stream.eval(ref.set((total, newTotalHashed, newAccumulated)))
+    } yield ()
+  }
+
+  private def WHEN_TO_LOG(totalSize: Long): Long = (totalSize / 20.0).toLong
 }
