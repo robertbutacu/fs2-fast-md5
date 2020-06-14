@@ -15,12 +15,17 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
       .chunks
       .broadcastTo(
         md5Update.andThen(
-          progressBar(
+          updateProgressBar("hashed")(
             Ref
               .of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L))
               .unsafeRunSync()
           )
         ),
+        updateProgressBar("read")(
+          Ref
+            .of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L))
+            .unsafeRunSync()
+        )
       )
       .compile
       .drain
@@ -46,8 +51,7 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
     }
   }
 
-  def progressBar
-    : Ref[IO, ProgressLogger] => fs2.Pipe[IO, Chunk[Byte], Unit] = {
+  def updateProgressBar(action: String): Ref[IO, ProgressLogger] => fs2.Pipe[IO, Chunk[Byte], Unit] = {
     progressCounter => chunk =>
       {
         for {
@@ -61,13 +65,15 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
             if (unadjustedHashed > WHEN_TO_LOG(total.get))
               IO(
                 println(
-                  s"[${Instant.now}]Made progress to ${progressPercentage.toInt}: hashed ${newTotalHashed * Math
+                  s"[$action][${Instant.now}]Made progress to ${progressPercentage.toInt}: $action ${newTotalHashed * Math
                     .pow(10, -6)} MB out of ${total.get * Math.pow(10, -6)} MB"
                 )
               )
             else IO.pure(())
           )
-        _ <- fs2.Stream.eval(progressCounter.set((total, newTotalHashed, adjustedAccumulated)))
+          _ <- fs2.Stream.eval(
+            progressCounter.set((total, newTotalHashed, adjustedAccumulated))
+          )
         } yield ()
       }
   }
