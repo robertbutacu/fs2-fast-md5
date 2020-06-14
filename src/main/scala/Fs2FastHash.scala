@@ -15,13 +15,13 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
       .chunks
       .broadcastTo(
         md5Update.andThen(
-          updateProgressBar("hashed")(
+          logProgress("hashed")(
             Ref
               .of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L))
               .unsafeRunSync()
           )
         ),
-        updateProgressBar("read")(
+        logProgress("read")(
           Ref
             .of[IO, (Option[Long], Long, Long)]((file.size, 0L, 0L))
             .unsafeRunSync()
@@ -51,7 +51,7 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
     }
   }
 
-  def updateProgressBar(action: String): Ref[IO, ProgressLogger] => fs2.Pipe[IO, Chunk[Byte], Unit] = {
+  def logProgress(action: String): Ref[IO, ProgressLogger] => fs2.Pipe[IO, Chunk[Byte], Unit] = {
     progressCounter => chunk =>
       {
         for {
@@ -90,5 +90,5 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
     } yield ()
   }
 
-  private def WHEN_TO_LOG(totalSize: Long): Long = (totalSize / 20.0).toLong
+  private def WHEN_TO_LOG(totalSize: Long): Long = (totalSize / 100.0).toLong
 }
