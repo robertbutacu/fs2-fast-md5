@@ -24,26 +24,23 @@ object Main extends IOApp {
   }
 
   override def run(args: List[String]): IO[ExitCode] = {
-    val file = Path("file.txt")
-
-//    val blocker = Blocker.liftExecutionContext(Implicits.global)
-//
-//      .as(ExitCode.Success)
-
     val executionContext =
       ExecutionContext.fromExecutor(Executors.newFixedThreadPool(1))
     val blocker = Blocker.liftExecutionContext(executionContext)
     val localStore = new FileStore[IO](Paths.get(""), blocker)
-
+    val file = Path("file.txt")
     import cats.implicits._
     for {
-      _ <- (0 to 10).toList.traverse { counter =>
-        time(counter)(new Fs2FastHash(localStore).go(file))
-          .map { hash =>
-            println(s"MD5 is $hash\n\n\n")
-          }
+      _ <- (0 to 0).toList.traverse { counter =>
+        for {
+          pathToHash <- localStore.list(file).compile.last.map(_.get)
+          _ <- time(counter)(new Fs2FastHash(localStore).go(pathToHash))
+            .map { hash =>
+              println(s"MD5 is $hash\n\n\n")
+            }
+        } yield ()
       }
-      _ <- (0 to 10).toList.traverse { counter =>
+      _ <- (0 to 0).toList.traverse { counter =>
         time(counter)(
           FastHash.hash(
             new File("/Users/robertbutacu/pet-projects/fs2-fast-md5/file.txt")
