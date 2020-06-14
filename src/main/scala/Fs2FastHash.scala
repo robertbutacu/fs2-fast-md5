@@ -9,7 +9,7 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
 
   def go(file: Path): IO[MD5Result] = {
     store
-      .get(file, 8086)
+      .get(file, 65536)
       .chunks
       .broadcastTo(
         md5Update,
@@ -39,7 +39,7 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
         for {
           bytes <- chunk
           size <- fs2.Stream.eval(fileSize.get)
-          _ <- fs2.Stream.eval(IO(println(s"Got ${bytes.size} out of $size")))
+        //  _ <- fs2.Stream.eval(IO(println(s"Got ${bytes.size} out of $size")))
         } yield ()
     }
 }
