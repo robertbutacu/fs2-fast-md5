@@ -9,7 +9,7 @@ class Fs2FastHash(store: Store[IO])(implicit concurrent: Concurrent[IO]) {
 
   def go(file: Path): IO[MD5Result] = {
     store
-      .get(file, 65536)
+      .get(file, 4 * 1024 * 1024)
       .chunks
       .broadcastTo(
         md5Update,
